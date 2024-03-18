@@ -5,3 +5,10 @@ azure-ai-formrecognizer==3.2.1
 azure-storage-blob==12.14.1
 typing==3.7.4.3
 pycryptodome==3.19.1
+Spire.Xls==14.2.2
+Spire.Presentation==9.1.0
+docx2pdf==0.1.8
+openpyxl==3.1.2
+pandas==2.2.1
+pillow==10.2.0
+PyPDF2==3.0.1

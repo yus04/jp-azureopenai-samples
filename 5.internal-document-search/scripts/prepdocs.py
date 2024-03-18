@@ -5,7 +5,15 @@ import html
 import io
 import re
 import time
+import PyPDF2
+import pandas as pd
 from pypdf import PdfReader, PdfWriter
+from PIL import Image as PIL_Image
+from spire.xls import *
+from spire.xls.common import *
+from spire.presentation import *
+from spire.presentation.common import *
+from docx2pdf import convert
 from azure.identity import AzureDeveloperCliCredential
 from azure.identity import ManagedIdentityCredential
 from azure.core.credentials import AzureKeyCredential
@@ -35,6 +43,7 @@ parser.add_argument("--index", help="Name of the Azure Cognitive Search index wh
 parser.add_argument("--searchkey", required=False, help="Optional. Use this Azure Cognitive Search account key instead of the current user identity to login (use az login to set current user for Azure)")
 parser.add_argument("--remove", action="store_true", help="Remove references to this document from blob storage and the search index")
 parser.add_argument("--removeall", action="store_true", help="Remove all blobs from blob storage and documents from the search index")
+parser.add_argument("--allowMultipleFileTypes", required=False, help="Upload multi types of file, for instance, .docx, .pptx, .xlsx")
 parser.add_argument("--localpdfparser", action="store_true", help="Use PyPdf local PDF parser (supports only digital PDFs) instead of Azure Form Recognizer service to extract text, tables and layout from the documents")
 parser.add_argument("--formrecognizerservice", required=False, help="Optional. Name of the Azure Form Recognizer service which will be used to extract text, tables and layout from the documents (must exist already)")
 parser.add_argument("--formrecognizerkey", required=False, help="Optional. Use this Azure Form Recognizer account key instead of the current user identity to login (use az login to set current user for Azure)")
@@ -297,6 +306,79 @@ def remove_from_index(filename):
         # It can take a few seconds for search results to reflect changes, so wait a bit
         time.sleep(2)
 
+def get_extension(filename):
+    _, extension = os.path.splitext(filename)
+    return extension.lower()
+
+def replace_extension(filename, new_extension):
+    base_name, _ = os.path.splitext(filename)
+    return base_name + new_extension
+
+def add_sheetname(filename, sheetname):
+    name, ext = os.path.splitext(filename)
+    return name + "-" + sheetname + ext
+
+def get_filenames_to_upload(filename, is_converted):
+    filenames = [filename]
+    if is_converted:
+        pdf_filename = replace_extension(filename, ".pdf")
+        filenames.append(pdf_filename)
+    return filenames
+
+def delete_uploaded_pdf(filename, file):
+    if filename != file:
+        file_path, name = os.path.split(filename)
+        basename = os.path.splitext(name)[0]
+        uploaded_pdfs = glob.glob(file_path + "/" + basename + "*.pdf")
+        for uploaded_pdf in uploaded_pdfs:
+            os.remove(uploaded_pdf)
+            print(f"removed uploaded pdf of {uploaded_pdf}")
+
+def save_as_pdf(filename, allowed_extensions):
+    is_converted = True
+    extension = get_extension(filename)
+    pdf_filename = replace_extension(filename, ".pdf")
+    if os.path.exists(pdf_filename):
+        is_converted = False
+    elif extension in [".pdf"]:
+        is_converted = False
+    elif extension in [".doc", ".docx"]:
+        if extension == ".doc":
+            filename = replace_extension(filename, ".docx")
+        convert(filename)
+    elif extension in [".csv", ".xls", ".xlsx"]:
+        if extension == ".csv":
+            df = pd.read_csv(filename)
+            filename = replace_extension(filename, ".xlsx")
+            df.to_excel(filename, index=False)
+        merger = PyPDF2.PdfMerger()
+        pdf_filename_sheetnames = []
+        workbook = Workbook()
+        workbook.LoadFromFile(filename)
+        workbook.ConverterSetting.SheetFitToPage = True
+        for sheet in workbook.Worksheets:
+            pdf_filename_sheetname = add_sheetname(pdf_filename, sheet.Name)
+            sheet.SaveToPdf(pdf_filename_sheetname)
+            merger.append(pdf_filename_sheetname)
+            pdf_filename_sheetnames.append(pdf_filename_sheetname)
+        workbook.Dispose()
+        with open(pdf_filename, 'wb') as file:
+            merger.write(file)
+        if extension == ".csv":
+            os.remove(filename)
+    elif extension in [".ppt", ".pptx"]:
+        presentation = Presentation()
+        presentation.LoadFromFile(filename)
+        presentation.SaveToFile(pdf_filename, FileFormat.PDF)
+        presentation.Dispose()
+    elif extension in [".jpg", ".jpeg", ".png", ".gif"]:
+        img = PIL_Image.open(filename)
+        img.save(pdf_filename, "PDF")
+    else:
+        raise ValueError(f"Invalid file extension: {extension} Allowed extensions are: {', '.join(allowed_extensions)}")
+    print(f"Converted file extension from {extension} to .pdf")
+    return is_converted
+
 if args.removeall:
     remove_blobs(None)
     remove_from_index(None)
@@ -313,6 +395,20 @@ else:
         elif args.removeall:
             remove_blobs(None)
             remove_from_index(None)
+        elif args.allowMultipleFileTypes:
+            allowed_extensions = [
+                ".pdf", ".doc", ".docx", ".csv", ".xls", ".xlsx",
+                ".ppt", ".pptx", ".jpg", ".jpeg", ".png", ".gif"
+            ]
+            is_converted = save_as_pdf(filename, allowed_extensions)
+            filenames = get_filenames_to_upload(filename, is_converted)
+            for file in filenames:
+                upload_blobs(file)
+                if get_extension(file) == ".pdf":
+                    page_map = get_document_text(file)
+                    sections = create_sections(os.path.basename(file), page_map)
+                    index_sections(os.path.basename(file), sections)
+                    delete_uploaded_pdf(filename, file)
         else:
             if not args.skipblobs:
                 upload_blobs(filename)
