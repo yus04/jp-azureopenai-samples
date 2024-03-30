@@ -175,6 +175,9 @@ PoC/検証等の目的で小さく始めた後に、本番稼働を視野にい�
 #### Azure Search Indexの作成・更新方法
 本サンプルでは、`data/`ディレクトリにあるデータを、`scripts`にあるスクリプトでAzureにアップロードし、Azure Search Indexを作成する方法をとっています。Indexの更新のしやすさや検索結果の改善をする場合、サンプルのスクリプトを部分的に修正するのではなく、要件を整理した上で更新用のアプリケーション構築の用意等についての検討を推奨します。
 
+#### 様々なデータフォーマットのデータのインデックス化
+prepdocs.ps1 の `Start-Process -FilePath $venvPythonPath` または prepdocs.sh の `./scripts/.venv/bin/python ./scripts/prepdocs.py` の引数に `--allowMultipleFileTypes True` を追加することで、.pdf, .doc, .docx, .csv, .xls, .xlsx, .ppt, .pptx, .jpg, .jpeg, .png, .gif のデータフォーマットをインデックス化できます。
+
 #### 検索結果の「良さ」や「精度」改善するための設計
 生成AIは確率的な性質を持つため、同じ入力に対しても異なる出力が生成される可能性があります。このような性質は、生成AIが多様な出力を生成できる利点でもありますが、一方で評価が難しくなる場合もあります。そのため、生成AIの「良さ」や「精度」を一様に評価するのは困難であり、用途や目的に応じて評価基準が設定されることが多いです。
 
