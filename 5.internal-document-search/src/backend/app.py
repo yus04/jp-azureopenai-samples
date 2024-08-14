@@ -10,7 +10,7 @@ from azure.storage.blob import BlobServiceClient
 from approaches.chatlogging import get_user_name, write_error
 from approaches.chatreadretrieveread import ChatReadRetrieveReadApproach
 from approaches.chatread import ChatReadApproach
-from core.openaiclienthelper import get_openai_clients
+from core.azureopenaiclienthelper import AzureOpenAiClientHelper
 
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
@@ -34,9 +34,8 @@ AZURE_OPENAI_SERVICE = os.environ.get("AZURE_OPENAI_SERVICE")
 # keys for each service
 # If you encounter a blocking error during a DefaultAzureCredntial resolution, you can exclude the problematic credential by using a parameter (ex. exclude_shared_token_cache_credential=True)
 azure_credential = DefaultAzureCredential()
-openai_token = azure_credential.get_token("https://cognitiveservices.azure.com/.default")
-
-openai_clients = get_openai_clients(openai_token.token, azure_credential)
+aoai_client_helper = AzureOpenAiClientHelper(azure_credential)
+openai_clients = aoai_client_helper.get_aoai_clients()
 
 # Set up clients for Cognitive Search and Storage
 search_client = SearchClient(
@@ -140,11 +139,7 @@ def docsearch():
         return jsonify({"error": str(e)}), 500
 
 def ensure_openai_token():
-    global openai_token
-    if openai_token.expires_on < int(time.time()) - 60:
-        openai_token = azure_credential.get_token("https://cognitiveservices.azure.com/.default")
-        for openai_client in list(openai_clients.values()):
-            openai_client.api_key = openai_token.token
+    aoai_client_helper.update_aoai_token()
 
 if __name__ == "__main__":
     app.run(port=5000, host='0.0.0.0')
